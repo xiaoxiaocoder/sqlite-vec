@@ -54,6 +54,27 @@ jobs:
         with:
           name: sqlite-vec-windows-x86_64-extension
           path: dist/*
+  build-windows-i686-extension:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: ./scripts/vendor.sh
+        shell: bash
+      - run: make sqlite-vec.h
+      - run: mkdir dist
+      - run: cl.exe /fPIC -shared /W4 /Ivendor/ /O2 /LD sqlite-vec.c -o dist/vec0.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-vec-windows-i686-extension
+          path: dist/*
   build-linux-aarch64-extension:
     runs-on: ubuntu-22.04-arm
     steps:
@@ -63,6 +84,25 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: sqlite-vec-linux-aarch64-extension
+          path: dist/*
+  build-linux-cross-extensions:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        platforms:
+          [
+            { name: linux-mips64, cc: mips64-linux-gnuabi64-gcc, ar: mips64-linux-gnuabi64-ar, packages: gcc-mips64-linux-gnuabi64 },
+            { name: linux-loongarch64, cc: loongarch64-linux-gnu-gcc, ar: loongarch64-linux-gnu-ar, packages: gcc-loongarch64-linux-gnu },
+          ]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ${{ matrix.platforms.packages }}
+      - run: ./scripts/vendor.sh
+      - run: make CC=${{ matrix.platforms.cc }} AR=${{ matrix.platforms.ar }} OMIT_SIMD=1 loadable static
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-vec-${{ matrix.platforms.name }}-extension
           path: dist/*
   build-cosmopolitan:
     runs-on: macos-latest
@@ -185,9 +225,11 @@ jobs:
       [
         build-linux-x86_64-extension,
         build-linux-aarch64-extension,
+        build-linux-cross-extensions,
         build-macos-x86_64-extension,
         build-macos-aarch64-extension,
         build-windows-x86_64-extension,
+        build-windows-i686-extension,
         build-wasm32-emscripten,
         build-android-extensions,
         build-ios-extensions,
@@ -209,6 +251,14 @@ jobs:
           path: dist/linux-aarch64
       - uses: actions/download-artifact@v4
         with:
+          name: sqlite-vec-linux-mips64-extension
+          path: dist/linux-mips64
+      - uses: actions/download-artifact@v4
+        with:
+          name: sqlite-vec-linux-loongarch64-extension
+          path: dist/linux-loongarch64
+      - uses: actions/download-artifact@v4
+        with:
           name: sqlite-vec-macos-x86_64-extension
           path: dist/macos-x86_64
       - uses: actions/download-artifact@v4
@@ -219,6 +269,10 @@ jobs:
         with:
           name: sqlite-vec-windows-x86_64-extension
           path: dist/windows-x86_64
+      - uses: actions/download-artifact@v4
+        with:
+          name: sqlite-vec-windows-i686-extension
+          path: dist/windows-i686
       - uses: actions/download-artifact@v4
         with:
           name: sqlite-vec-wasm32-emscripten
