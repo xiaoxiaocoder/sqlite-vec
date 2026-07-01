@@ -106,14 +106,24 @@ jobs:
       matrix:
         platforms:
           [
-            { name: linux-mips64, cc: mips64-linux-gnuabi64-gcc, ar: mips64-linux-gnuabi64-ar, packages: gcc-mips64-linux-gnuabi64 },
-            { name: linux-loongarch64, cc: loongarch64-linux-gnu-gcc, ar: loongarch64-linux-gnu-ar, packages: gcc-loongarch64-linux-gnu },
+            { name: linux-mips64, target: mips64-linux-gnuabi64 },
+            { name: linux-loongarch64, target: loongarch64-linux-gnu },
           ]
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y ${{ matrix.platforms.packages }}
+      - run: sudo apt-get update && sudo apt-get install -y clang lld llvm
       - run: ./scripts/vendor.sh
-      - run: make CC=${{ matrix.platforms.cc }} AR=${{ matrix.platforms.ar }} OMIT_SIMD=1 loadable static
+      - run: make sqlite-vec.h
+      - run: |
+          mkdir -p dist/.objs
+          clang --target=${{ matrix.platforms.target }} -fuse-ld=lld -nostdlib \
+            -Wl,--unresolved-symbols=ignore-all \
+            -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
+            sqlite-vec.c -o dist/vec0.so
+          clang --target=${{ matrix.platforms.target }} \
+            -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
+            -c sqlite-vec.c -o dist/.objs/vec.o
+          llvm-ar rcs dist/libsqlite_vec0.a dist/.objs/vec.o
       - uses: actions/upload-artifact@v4
         with:
           name: sqlite-vec-${{ matrix.platforms.name }}-extension

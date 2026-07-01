@@ -59,57 +59,57 @@ jobs:
             leak-*
             timeout-*
 
-  fuzz-macos:
-    runs-on: macos-14
-    # Best-effort: Homebrew LLVM 18 runtime dylibs pull in
-    # __ZnwmSt19__type_descriptor_t (typed allocation ABI) which
-    # macOS 14's system libc++ doesn't provide, causing dyld to abort.
-    # Xcode clang doesn't ship libclang_rt.fuzzer_osx.a (no libFuzzer).
-    # TODO: fix macOS fuzzing (pin older compiler-rt, or static runtime).
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install LLVM 18
-        run: brew install llvm@18
-      - run: ./scripts/vendor.sh
-      - name: Generate sqlite-vec.h
-        run: make sqlite-vec.h
-      - name: Build fuzz targets
-        run: |
-          LLVM=/opt/homebrew/opt/llvm@18
-          make -C tests/fuzz all \
-            FUZZ_CC=$LLVM/bin/clang \
-            FUZZ_LDFLAGS="-Wl,-ld_classic"
-      - name: Run fuzz targets
-        run: |
-          DURATION=${{ github.event.inputs.duration || '60' }}
-          EXIT_CODE=0
-          for target in tests/fuzz/targets/*; do
-            [ -f "$target" ] && [ -x "$target" ] || continue
-            name=$(basename "$target")
-            echo "::group::Fuzzing $name ($DURATION seconds)"
-            corpus="tests/fuzz/corpus/$name"
-            mkdir -p "$corpus"
-            dict="tests/fuzz/${name//_/-}.dict"
-            dict_flag=""
-            [ -f "$dict" ] && dict_flag="-dict=$dict"
-            if ! "$target" $dict_flag \
-              -max_total_time="$DURATION" "$corpus" 2>&1; then
-              echo "::error::Fuzz target $name found a crash!"
-              EXIT_CODE=1
-            fi
-            echo "::endgroup::"
-          done
-          exit $EXIT_CODE
-      - name: Upload crash artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuzz-crashes-macos
-          path: |
-            crash-*
-            leak-*
-            timeout-*
+  # fuzz-macos:
+  #   runs-on: macos-14
+  #   # Best-effort: Homebrew LLVM 18 runtime dylibs pull in
+  #   # __ZnwmSt19__type_descriptor_t (typed allocation ABI) which
+  #   # macOS 14's system libc++ doesn't provide, causing dyld to abort.
+  #   # Xcode clang doesn't ship libclang_rt.fuzzer_osx.a (no libFuzzer).
+  #   # TODO: fix macOS fuzzing (pin older compiler-rt, or static runtime).
+  #   continue-on-error: true
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Install LLVM 18
+  #       run: brew install llvm@18
+  #     - run: ./scripts/vendor.sh
+  #     - name: Generate sqlite-vec.h
+  #       run: make sqlite-vec.h
+  #     - name: Build fuzz targets
+  #       run: |
+  #         LLVM=/opt/homebrew/opt/llvm@18
+  #         make -C tests/fuzz all \
+  #           FUZZ_CC=$LLVM/bin/clang \
+  #           FUZZ_LDFLAGS="-Wl,-ld_classic"
+  #     - name: Run fuzz targets
+  #       run: |
+  #         DURATION=${{ github.event.inputs.duration || '60' }}
+  #         EXIT_CODE=0
+  #         for target in tests/fuzz/targets/*; do
+  #           [ -f "$target" ] && [ -x "$target" ] || continue
+  #           name=$(basename "$target")
+  #           echo "::group::Fuzzing $name ($DURATION seconds)"
+  #           corpus="tests/fuzz/corpus/$name"
+  #           mkdir -p "$corpus"
+  #           dict="tests/fuzz/${name//_/-}.dict"
+  #           dict_flag=""
+  #           [ -f "$dict" ] && dict_flag="-dict=$dict"
+  #           if ! "$target" $dict_flag \
+  #             -max_total_time="$DURATION" "$corpus" 2>&1; then
+  #             echo "::error::Fuzz target $name found a crash!"
+  #             EXIT_CODE=1
+  #           fi
+  #           echo "::endgroup::"
+  #         done
+  #         exit $EXIT_CODE
+  #     - name: Upload crash artifacts
+  #       if: failure()
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: fuzz-crashes-macos
+  #         path: |
+  #           crash-*
+  #           leak-*
+  #           timeout-*
 
   fuzz-windows:
     # Best-effort: libFuzzer works on Windows via LLVM but ASAN/UBSAN
