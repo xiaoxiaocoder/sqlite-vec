@@ -115,6 +115,8 @@ $(TARGET_DIR)/ivf_cell_overflow: ivf-cell-overflow.c $(FUZZ_SRCS) | $(TARGET_DIR
 	$(FUZZ_CC) $(FUZZ_CFLAGS) $(FUZZ_SRCS) $< -o $@
 
 $(TARGET_DIR)/ivf_rescore: ivf-rescore.c $(FUZZ_SRCS) | $(TARGET_DIR)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) $(FUZZ_SRCS) $< -o $@
+
 $(TARGET_DIR)/diskann_operations: diskann-operations.c $(FUZZ_SRCS) | $(TARGET_DIR)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) $(FUZZ_SRCS) $< -o $@
 
@@ -154,7 +156,7 @@ FUZZ_TARGETS = vec0_create exec json numpy \
                rescore_quantize_edge rescore_interleave \
                ivf_create ivf_operations \
                ivf_quantize ivf_kmeans ivf_shadow_corrupt \
-               ivf_knn_deep ivf_cell_overflow ivf_rescore
+               ivf_knn_deep ivf_cell_overflow ivf_rescore \
                diskann_operations diskann_create diskann_graph_corrupt \
                diskann_deep_search diskann_blob_truncate \
                diskann_delete_stress diskann_buffer_flush \
