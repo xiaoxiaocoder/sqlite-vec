@@ -154,17 +154,40 @@ jobs:
             bash -c "
               set -e
               apt-get update
-              apt-get install -y gcc make curl
-              echo '=== Searching loongarch packages ==='
-              apt-cache search loongarch64 2>/dev/null || true
-              apt-cache search loongarch 2>/dev/null || true
-              echo '=== All cross-compiler packages ==='
-              apt-cache pkgnames | grep -E '^gcc-' | head -30 || true
-              echo '=== End diagnostics ==='
+              # Try installing loongarch64 cross-compiler.
+              # The package name may vary: gcc-loongarch64-linux-gnu or others.
+              apt-get install -y gcc make curl 2>/dev/null || true
+              apt-get install -y gcc-loongarch64-linux-gnu 2>/dev/null || true
+              apt-get install -y gcc-loongarch64-linux-gnuabi64 2>/dev/null || true
+              # Find the actual cross-compiler binary
+              LOONGARCH_CC=\$(ls /usr/bin/loongarch64-*-gcc 2>/dev/null | head -1)
+              if [ -z \"\$LOONGARCH_CC\" ]; then
+                echo 'ERROR: No loongarch64 cross-compiler found'
+                echo 'Available gcc binaries:'
+                ls /usr/bin/*gcc* 2>/dev/null | grep -i loong || true
+                exit 1
+              fi
+              echo \"Using cross-compiler: \$LOONGARCH_CC\"
+              LOONGARCH_PREFIX=\$(echo \$LOONGARCH_CC | sed 's/-gcc$//')
+              ./scripts/vendor.sh
+              make sqlite-vec.h
+              \$LOONGARCH_CC \
+                -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
+                sqlite-vec.c -o dist/vec0.so
+              \$LOONGARCH_CC \
+                -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
+                -c sqlite-vec.c -o dist/vec.o
+              \${LOONGARCH_PREFIX}-ar rcs dist/libsqlite_vec0.a dist/vec.o
+              echo 'Build complete'
             " || true)
           docker start -a "$CONTAINER" 2>/dev/null || true
-          docker cp "$CONTAINER":/src/. . 2>/dev/null || true
+          docker cp "$CONTAINER":/src/dist/. dist/ 2>/dev/null || true
           docker rm "$CONTAINER" 2>/dev/null || true
+      - run: ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-vec-linux-loongarch64-extension
+          path: dist/*
   test-linux-cross-extensions:
     runs-on: ubuntu-24.04
     needs: [build-linux-mips64, build-linux-loongarch64]
