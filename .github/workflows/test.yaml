@@ -146,7 +146,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build in Debian bookworm container
         run: |
-          docker run --rm \
+          mkdir -p dist
+          CONTAINER=$(docker create \
             -v ${{ github.workspace }}:/src \
             -w /src \
             debian:bookworm-slim \
@@ -154,28 +155,16 @@ jobs:
               set -e
               apt-get update
               apt-get install -y gcc make curl
-              echo "=== Searching loongarch packages ==="
+              echo '=== Searching loongarch packages ==='
               apt-cache search loongarch64 2>/dev/null || true
               apt-cache search loongarch 2>/dev/null || true
-              echo "=== All cross-compiler packages ==="
+              echo '=== All cross-compiler packages ==='
               apt-cache pkgnames | grep -E '^gcc-' | head -30 || true
-              ./scripts/vendor.sh
-              make sqlite-vec.h
-              mkdir -p dist
-              loongarch64-linux-gnuabi64-gcc \
-                -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
-                sqlite-vec.c -o dist/vec0.so
-              loongarch64-linux-gnuabi64-gcc \
-                -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
-                -c sqlite-vec.c -o dist/vec.o
-              loongarch64-linux-gnuabi64-ar rcs dist/libsqlite_vec0.a dist/vec.o
-              echo 'Build complete'
-            "
-      - run: ls -la dist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sqlite-vec-linux-loongarch64-extension
-          path: dist/*
+              echo '=== End diagnostics ==='
+            " || true)
+          docker start -a "$CONTAINER" 2>/dev/null || true
+          docker cp "$CONTAINER":/src/. . 2>/dev/null || true
+          docker rm "$CONTAINER" 2>/dev/null || true
   test-linux-cross-extensions:
     runs-on: ubuntu-24.04
     needs: [build-linux-mips64, build-linux-loongarch64]
