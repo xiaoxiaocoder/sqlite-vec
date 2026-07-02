@@ -117,24 +117,26 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install -y clang lld llvm
-          # Loongarch64 cross packages may not exist — fall back to freestanding
-          sudo apt-get install -y ${{ matrix.platforms.cross }} 2>/dev/null || true
+          # Install cross-compilation headers and libraries.
+          # libc6-dev-<arch>-cross provides system headers (assert.h, stdint.h, etc.)
+          # libc6-<arch>-cross provides shared libraries for the target.
+          # These may not exist for all architectures (e.g. loongarch64) — fall back to freestanding.
+          sudo apt-get install -y ${{ matrix.platforms.cross }} libc6-dev-$(echo ${{ matrix.platforms.cross }} | sed 's/libc6-//') 2>/dev/null || true
       - run: ./scripts/vendor.sh
       - run: make sqlite-vec.h
       - run: |
           mkdir -p dist/.objs
           SYSROOT=/usr/${{ matrix.platforms.target }}
-          if [ -d "$SYSROOT" ]; then
+          if [ -d "$SYSROOT/include" ]; then
             echo "Using sysroot: $SYSROOT"
             clang --target=${{ matrix.platforms.target }} --sysroot=$SYSROOT \
               -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
-              -L$SYSROOT/lib \
               sqlite-vec.c -o dist/vec0.so
             clang --target=${{ matrix.platforms.target }} --sysroot=$SYSROOT \
               -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
               -c sqlite-vec.c -o dist/.objs/vec.o
           else
-            echo "No sysroot at $SYSROOT, building with -nostdlib -ffreestanding"
+            echo "No sysroot headers at $SYSROOT/include, building with -nostdlib -ffreestanding"
             clang --target=${{ matrix.platforms.target }} -fuse-ld=lld \
               -nostdlib -ffreestanding \
               -Wl,--unresolved-symbols=ignore-all \
