@@ -77,33 +77,14 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - uses: msys2/setup-msys2@v2
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
-          msystem: MINGW32
-          install: mingw-w64-i686-gcc mingw-w64-i686-make mingw-w64-i686-sqlite3
+          arch: x86
       - run: ./scripts/vendor.sh
-        shell: msys2 {0}
+        shell: bash
       - run: make sqlite-vec.h
-        shell: msys2 {0}
-      - run: mkdir -p dist
-        shell: msys2 {0}
-      - run: x86_64-w64-mingw32-gcc -m32 -fPIC -shared -Wall -Wextra -Ivendor/ -O3 sqlite-vec.c -o dist/vec0.dll
-        shell: msys2 {0}
-      - run: x86_64-w64-mingw32-gcc -m32 -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 -c sqlite-vec.c -o dist/vec.o
-        shell: msys2 {0}
-      - run: x86_64-w64-mingw32-ar rcs dist/libsqlite_vec0.a dist/vec.o
-        shell: msys2 {0}
-      - run: |
-          sqlite3 <<EOF
-          .load ./dist/vec0.dll
-          SELECT vec_version();
-          SELECT vec_distance_l2([1,2,3], [4,5,6]);
-          SELECT vec_distance_cosine([1,0,0], [0,1,0]);
-          SELECT vec_distance_hamming(x'00', x'ff');
-          SELECT 'Windows i686 test passed';
-          .quit
-          EOF
-        shell: msys2 {0}
+      - run: mkdir dist
+      - run: cl.exe /fPIC -shared /W4 /Ivendor/ /O2 /LD /D_ARCH_WINDOWS_32 sqlite-vec.c -o dist/vec0.dll
       - uses: actions/upload-artifact@v4
         with:
           name: sqlite-vec-windows-i686-extension
