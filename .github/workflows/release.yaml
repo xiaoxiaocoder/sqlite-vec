@@ -97,23 +97,42 @@ jobs:
       matrix:
         platforms:
           [
-            { name: linux-mips64, target: mips64-linux-gnuabi64 },
-            { name: linux-loongarch64, target: loongarch64-linux-gnu },
+            { name: linux-mips64, target: mips64-linux-gnuabi64, cross: libc6-mips64-cross },
+            { name: linux-loongarch64, target: loongarch64-linux-gnu, cross: libc6-loongarch64-cross },
           ]
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y clang lld llvm
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm
+          # Loongarch64 cross packages may not exist — fall back to freestanding
+          sudo apt-get install -y ${{ matrix.platforms.cross }} 2>/dev/null || true
       - run: ./scripts/vendor.sh
       - run: make sqlite-vec.h
       - run: |
           mkdir -p dist/.objs
-          clang --target=${{ matrix.platforms.target }} -fuse-ld=lld -nostdlib \
-            -Wl,--unresolved-symbols=ignore-all \
-            -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
-            sqlite-vec.c -o dist/vec0.so
-          clang --target=${{ matrix.platforms.target }} \
-            -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
-            -c sqlite-vec.c -o dist/.objs/vec.o
+          SYSROOT=/usr/${{ matrix.platforms.target }}
+          if [ -d "$SYSROOT" ]; then
+            echo "Using sysroot: $SYSROOT"
+            clang --target=${{ matrix.platforms.target }} --sysroot=$SYSROOT \
+              -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
+              -L$SYSROOT/lib \
+              sqlite-vec.c -o dist/vec0.so
+            clang --target=${{ matrix.platforms.target }} --sysroot=$SYSROOT \
+              -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
+              -c sqlite-vec.c -o dist/.objs/vec.o
+          else
+            echo "No sysroot at $SYSROOT, building with -nostdlib -ffreestanding"
+            clang --target=${{ matrix.platforms.target }} -fuse-ld=lld \
+              -nostdlib -ffreestanding \
+              -Wl,--unresolved-symbols=ignore-all \
+              -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
+              sqlite-vec.c -o dist/vec0.so
+            clang --target=${{ matrix.platforms.target }} \
+              -nostdlibinc -ffreestanding \
+              -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
+              -c sqlite-vec.c -o dist/.objs/vec.o
+          fi
           llvm-ar rcs dist/libsqlite_vec0.a dist/.objs/vec.o
       - uses: actions/upload-artifact@v4
         with:
