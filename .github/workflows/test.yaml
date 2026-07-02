@@ -74,14 +74,33 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: msys2/setup-msys2@v2
         with:
-          arch: x86
+          msystem: MINGW32
+          install: mingw-w64-i686-gcc mingw-w64-i686-make mingw-w64-i686-sqlite3
       - run: ./scripts/vendor.sh
-        shell: bash
+        shell: msys2 {0}
       - run: make sqlite-vec.h
-      - run: mkdir dist
-      - run: cl.exe /fPIC -shared /W4 /Ivendor/ /O2 /LD /D_ARCH_WINDOWS_32 sqlite-vec.c -o dist/vec0.dll
+        shell: msys2 {0}
+      - run: mkdir -p dist
+        shell: msys2 {0}
+      - run: x86_64-w64-mingw32-gcc -m32 -fPIC -shared -Wall -Wextra -Ivendor/ -O3 sqlite-vec.c -o dist/vec0.dll
+        shell: msys2 {0}
+      - run: x86_64-w64-mingw32-gcc -m32 -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 -c sqlite-vec.c -o dist/vec.o
+        shell: msys2 {0}
+      - run: x86_64-w64-mingw32-ar rcs dist/libsqlite_vec0.a dist/vec.o
+        shell: msys2 {0}
+      - run: |
+          sqlite3 <<EOF
+          .load ./dist/vec0.dll
+          SELECT vec_version();
+          SELECT vec_distance_l2([1,2,3], [4,5,6]);
+          SELECT vec_distance_cosine([1,0,0], [0,1,0]);
+          SELECT vec_distance_hamming(x'00', x'ff');
+          SELECT 'Windows i686 test passed';
+          .quit
+          EOF
+        shell: msys2 {0}
       - uses: actions/upload-artifact@v4
         with:
           name: sqlite-vec-windows-i686-extension
@@ -106,28 +125,136 @@ jobs:
       matrix:
         platforms:
           [
-            { name: linux-mips64, target: mips64-linux-gnuabi64 },
-            { name: linux-loongarch64, target: loongarch64-linux-gnu },
+            { name: linux-mips64, target: mips64-linux-gnuabi64, sysroot: /usr/mips64-linux-gnuabi64 },
+            { name: linux-loongarch64, target: loongarch64-linux-gnu, sysroot: /usr/loongarch64-linux-gnu },
           ]
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y clang lld llvm
+      - run: sudo apt-get update && sudo apt-get install -y clang lld llvm gcc-${{ matrix.platforms.target }} libc6-${{ matrix.platforms.name == 'linux-mips64' && 'mips64' || 'loongarch64' }}-cross
       - run: ./scripts/vendor.sh
       - run: make sqlite-vec.h
       - run: |
           mkdir -p dist/.objs
-          clang --target=${{ matrix.platforms.target }} -fuse-ld=lld -nostdlib \
-            -Wl,--unresolved-symbols=ignore-all \
+          clang --target=${{ matrix.platforms.target }} \
+            --sysroot=${{ matrix.platforms.sysroot }} \
             -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
+            -L${{ matrix.platforms.sysroot }}/lib \
             sqlite-vec.c -o dist/vec0.so
           clang --target=${{ matrix.platforms.target }} \
+            --sysroot=${{ matrix.platforms.sysroot }} \
             -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
             -c sqlite-vec.c -o dist/.objs/vec.o
           llvm-ar rcs dist/libsqlite_vec0.a dist/.objs/vec.o
+      - run: ls -la dist
       - uses: actions/upload-artifact@v4
         with:
           name: sqlite-vec-${{ matrix.platforms.name }}-extension
           path: dist/*
+  test-linux-cross-extensions:
+    runs-on: ubuntu-24.04
+    needs: build-linux-cross-extensions
+    strategy:
+      fail-fast: false
+      matrix:
+        platforms:
+          [
+            { name: linux-mips64, qemu: qemu-mips64, target: mips64-linux-gnuabi64, sysroot: /usr/mips64-linux-gnuabi64 },
+            { name: linux-loongarch64, qemu: qemu-loongarch64, target: loongarch64-linux-gnu, sysroot: /usr/loongarch64-linux-gnu },
+          ]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ${{ matrix.platforms.qemu }} gcc-${{ matrix.platforms.target }} libc6-${{ matrix.platforms.name == 'linux-mips64' && 'mips64' || 'loongarch64' }}-cross
+      - uses: actions/download-artifact@v4
+        with:
+          name: sqlite-vec-${{ matrix.platforms.name }}-extension
+          path: dist
+      - run: ls -la dist
+      - run: |
+          cat > test_qemu.c << 'TESTEOF'
+          #include <stdio.h>
+          #include <sqlite3.h>
+
+          static int vec_test(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+              double version = sqlite3_value_double(argv[0]);
+              sqlite3_result_double(ctx, version);
+              return SQLITE_OK;
+          }
+
+          int main() {
+              sqlite3 *db;
+              sqlite3_stmt *stmt;
+              int rc;
+              double val;
+
+              rc = sqlite3_open(":memory:", &db);
+              if (rc != SQLITE_OK) {
+                  printf("FAIL: sqlite3_open failed\n");
+                  return 1;
+              }
+
+              rc = sqlite3_load_extension(db, "./dist/vec0.so", 0, 0);
+              if (rc != SQLITE_OK) {
+                  printf("FAIL: sqlite3_load_extension: %s\n", sqlite3_errmsg(db));
+                  return 1;
+              }
+
+              rc = sqlite3_prepare_v2(db, "SELECT vec_version()", -1, &stmt, 0);
+              if (rc != SQLITE_OK) {
+                  printf("FAIL: prepare vec_version\n");
+                  return 1;
+              }
+              rc = sqlite3_step(stmt);
+              if (rc == SQLITE_ROW) {
+                  val = sqlite3_column_double(stmt, 0);
+                  printf("OK: vec_version = %.2f\n", val);
+              } else {
+                  printf("FAIL: step vec_version\n");
+                  return 1;
+              }
+              sqlite3_finalize(stmt);
+
+              rc = sqlite3_prepare_v2(db, "SELECT vec_distance_l2([1,2,3], [4,5,6])", -1, &stmt, 0);
+              if (rc != SQLITE_OK) {
+                  printf("FAIL: prepare vec_distance_l2\n");
+                  return 1;
+              }
+              rc = sqlite3_step(stmt);
+              if (rc == SQLITE_ROW) {
+                  val = sqlite3_column_double(stmt, 0);
+                  printf("OK: vec_distance_l2 = %.2f\n", val);
+              } else {
+                  printf("FAIL: step vec_distance_l2\n");
+                  return 1;
+              }
+              sqlite3_finalize(stmt);
+
+              rc = sqlite3_prepare_v2(db, "SELECT vec_distance_hamming(x'00', x'ff')", -1, &stmt, 0);
+              if (rc != SQLITE_OK) {
+                  printf("FAIL: prepare vec_distance_hamming\n");
+                  return 1;
+              }
+              rc = sqlite3_step(stmt);
+              if (rc == SQLITE_ROW) {
+                  val = sqlite3_column_double(stmt, 0);
+                  printf("OK: vec_distance_hamming = %.0f\n", val);
+              } else {
+                  printf("FAIL: step vec_distance_hamming\n");
+                  return 1;
+              }
+              sqlite3_finalize(stmt);
+
+              sqlite3_close(db);
+              printf("SUCCESS: All QEMU tests passed\n");
+              return 0;
+          }
+          TESTEOF
+      - run: |
+          gcc-${{ matrix.platforms.target }} -I${{ matrix.platforms.sysroot }}/include -L${{ matrix.platforms.sysroot }}/lib \
+            -o test_qemu test_qemu.c -lsqlite3
+      - run: |
+          export QEMU_LD_PREFIX=${{ matrix.platforms.sysroot }}
+          ${{ matrix.platforms.qemu }} ./test_qemu
+        name: Test extension with QEMU
   # build-android-extensions:
   #   runs-on: ubuntu-latest
   #   strategy:
