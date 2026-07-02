@@ -130,6 +130,7 @@ jobs:
           if [ -d "$SYSROOT/include" ]; then
             echo "Using sysroot: $SYSROOT"
             clang --target=${{ matrix.platforms.target }} --sysroot=$SYSROOT \
+              -fuse-ld=lld \
               -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
               sqlite-vec.c -o dist/vec0.so
             clang --target=${{ matrix.platforms.target }} --sysroot=$SYSROOT \
