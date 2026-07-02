@@ -103,71 +103,41 @@ jobs:
   #         name: sqlite-vec-linux-aarch64-extension
   #         path: dist/*
   build-linux-cross-extensions:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        platforms:
-          [
-            { name: linux-mips64, target: mips64-linux-gnuabi64, cross: libc6-mips64-cross },
-            { name: linux-loongarch64, target: loongarch64-linux-gnu, cross: libc6-loongarch64-cross },
-          ]
+        platform:
+          - mips64
+          - loongarch64
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y clang lld llvm
-          # Install cross-compilation headers and libraries.
-          # libc6-dev-<arch>-cross provides system headers (assert.h, stdint.h, etc.)
-          # libc6-<arch>-cross provides shared libraries for the target.
-          # These may not exist for all architectures (e.g. loongarch64) — fall back to freestanding.
-          sudo apt-get install -y ${{ matrix.platforms.cross }} libc6-dev-$(echo ${{ matrix.platforms.cross }} | sed 's/libc6-//') 2>/dev/null || true
-      - run: ./scripts/vendor.sh
-      - run: make sqlite-vec.h
-      - run: |
-          mkdir -p dist/.objs
-          SYSROOT=/usr/${{ matrix.platforms.target }}
-          if [ -d "$SYSROOT/include" ]; then
-            echo "Using sysroot: $SYSROOT"
-            # .so: use -nostdlib to avoid crtbeginS.o / libgcc dependencies
-            # (not available in bare libc6-<arch>-cross packages).
-            clang --target=${{ matrix.platforms.target }} --sysroot=$SYSROOT \
-              -fuse-ld=lld -nostdlib \
-              -Wl,--unresolved-symbols=ignore-all \
-              -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
-              sqlite-vec.c -o dist/vec0.so
-            clang --target=${{ matrix.platforms.target }} --sysroot=$SYSROOT \
-              -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
-              -c sqlite-vec.c -o dist/.objs/vec.o
-          else
-            echo "No sysroot headers at $SYSROOT/include, using fallback with host glibc headers"
-            # Ubuntu 24.04's glibc headers use multiarch paths. When cross-compiling
-            # without a target sysroot, clang falls back to /usr/include/foo which
-            # may reference /usr/include/bits/wordsize.h which doesn't exist in the
-            # multiarch layout. Create a symlink so the fallback works.
-            if [ ! -d /usr/include/bits ] && [ -d /usr/include/x86_64-linux-gnu/bits ]; then
-              sudo ln -s x86_64-linux-gnu/bits /usr/include/bits
-            fi
-            if [ ! -d /usr/include/gnu ] && [ -d /usr/include/x86_64-linux-gnu/gnu ]; then
-              sudo ln -s x86_64-linux-gnu/gnu /usr/include/gnu
-            fi
-            if [ ! -d /usr/include/sys ] && [ -d /usr/include/x86_64-linux-gnu/sys ]; then
-              sudo ln -s x86_64-linux-gnu/sys /usr/include/sys
-            fi
-            clang --target=${{ matrix.platforms.target }} -fuse-ld=lld \
-              -nostdlib \
-              -Wl,--unresolved-symbols=ignore-all \
-              -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
-              sqlite-vec.c -o dist/vec0.so
-            # No static .o/.a — requires proper target sysroot
-            mkdir -p dist/.objs
-            touch dist/.objs/vec.o
-          fi
-          llvm-ar rcs dist/libsqlite_vec0.a dist/.objs/vec.o
+      - name: Build in Debian bookworm container
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/src \
+            -w /src \
+            debian:bookworm-slim \
+            bash -c "
+              set -e
+              apt-get update
+              apt-get install -y gcc gcc-\${{ matrix.platform }}-linux-gnuabi64 make curl
+              ./scripts/vendor.sh
+              make sqlite-vec.h
+              mkdir -p dist
+              \${{ matrix.platform }}-linux-gnuabi64-gcc \
+                -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
+                sqlite-vec.c -o dist/vec0.so
+              \${{ matrix.platform }}-linux-gnuabi64-gcc \
+                -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
+                -c sqlite-vec.c -o dist/vec.o
+              \${{ matrix.platform }}-linux-gnuabi64-ar rcs dist/libsqlite_vec0.a dist/vec.o
+              echo 'Build complete'
+            "
       - run: ls -la dist
       - uses: actions/upload-artifact@v4
         with:
-          name: sqlite-vec-${{ matrix.platforms.name }}-extension
+          name: sqlite-vec-linux-${{ matrix.platform }}-extension
           path: dist/*
   test-linux-cross-extensions:
     runs-on: ubuntu-24.04
