@@ -109,8 +109,11 @@ jobs:
           SYSROOT=/usr/${{ matrix.platforms.target }}
           if [ -d "$SYSROOT/include" ]; then
             echo "Using sysroot: $SYSROOT"
+            # .so: use -nostdlib to avoid crtbeginS.o / libgcc dependencies
+            # (not available in bare libc6-<arch>-cross packages).
             clang --target=${{ matrix.platforms.target }} --sysroot=$SYSROOT \
-              -fuse-ld=lld \
+              -fuse-ld=lld -nostdlib \
+              -Wl,--unresolved-symbols=ignore-all \
               -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
               sqlite-vec.c -o dist/vec0.so
             clang --target=${{ matrix.platforms.target }} --sysroot=$SYSROOT \
