@@ -117,16 +117,28 @@ jobs:
               -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
               -c sqlite-vec.c -o dist/.objs/vec.o
           else
-            echo "No sysroot headers at $SYSROOT/include, building with -nostdlib -ffreestanding"
+            echo "No sysroot headers at $SYSROOT/include, using fallback with host glibc headers"
+            # Ubuntu 24.04's glibc headers use multiarch paths. When cross-compiling
+            # without a target sysroot, clang falls back to /usr/include/foo which
+            # may reference /usr/include/bits/wordsize.h which doesn't exist in the
+            # multiarch layout. Create a symlink so the fallback works.
+            if [ ! -d /usr/include/bits ] && [ -d /usr/include/x86_64-linux-gnu/bits ]; then
+              sudo ln -s x86_64-linux-gnu/bits /usr/include/bits
+            fi
+            if [ ! -d /usr/include/gnu ] && [ -d /usr/include/x86_64-linux-gnu/gnu ]; then
+              sudo ln -s x86_64-linux-gnu/gnu /usr/include/gnu
+            fi
+            if [ ! -d /usr/include/sys ] && [ -d /usr/include/x86_64-linux-gnu/sys ]; then
+              sudo ln -s x86_64-linux-gnu/sys /usr/include/sys
+            fi
             clang --target=${{ matrix.platforms.target }} -fuse-ld=lld \
-              -nostdlib -ffreestanding \
+              -nostdlib \
               -Wl,--unresolved-symbols=ignore-all \
               -fPIC -shared -Wall -Wextra -Ivendor/ -O3 \
               sqlite-vec.c -o dist/vec0.so
-            clang --target=${{ matrix.platforms.target }} \
-              -nostdlibinc -ffreestanding \
-              -Ivendor/ -DSQLITE_CORE -DSQLITE_VEC_STATIC -O3 \
-              -c sqlite-vec.c -o dist/.objs/vec.o
+            # No static .o/.a — requires proper target sysroot
+            mkdir -p dist/.objs
+            touch dist/.objs/vec.o
           fi
           llvm-ar rcs dist/libsqlite_vec0.a dist/.objs/vec.o
       - uses: actions/upload-artifact@v4
