@@ -44,9 +44,6 @@ $(TARGET_DIR)/exec: exec.c $(FUZZ_SRCS) | $(TARGET_DIR)
 $(TARGET_DIR)/json: json.c $(FUZZ_SRCS) | $(TARGET_DIR)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) $(FUZZ_SRCS) $< -o $@
 
-$(TARGET_DIR)/numpy: numpy.c $(FUZZ_SRCS) | $(TARGET_DIR)
-	$(FUZZ_CC) $(FUZZ_CFLAGS) $(FUZZ_SRCS) $< -o $@
-
 # New targets
 $(TARGET_DIR)/shadow_corrupt: shadow-corrupt.c $(FUZZ_SRCS) | $(TARGET_DIR)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) $(FUZZ_SRCS) $< -o $@
@@ -147,7 +144,7 @@ $(TARGET_DIR)/diskann_prune_direct: diskann-prune-direct.c $(FUZZ_SRCS) | $(TARG
 $(TARGET_DIR)/diskann_command_inject: diskann-command-inject.c $(FUZZ_SRCS) | $(TARGET_DIR)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) $(FUZZ_SRCS) $< -o $@
 
-FUZZ_TARGETS = vec0_create exec json numpy \
+FUZZ_TARGETS = vec0_create exec json \
                shadow_corrupt vec0_operations scalar_functions \
                vec0_create_full metadata_columns vec_each vec_mismatch \
                vec0_delete_completeness \
