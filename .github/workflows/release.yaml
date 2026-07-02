@@ -132,7 +132,12 @@ jobs:
             bash -c "
               set -e
               apt-get update
-              apt-get install -y gcc gcc-loongarch64-linux-gnuabi64 make curl
+              apt-get install -y gcc make curl
+              echo "=== Searching loongarch packages ==="
+              apt-cache search loongarch64 2>/dev/null || true
+              apt-cache search loongarch 2>/dev/null || true
+              echo "=== All cross-compiler packages ==="
+              apt-cache pkgnames | grep -E '^gcc-' | head -30 || true
               ./scripts/vendor.sh
               make sqlite-vec.h
               mkdir -p dist
