@@ -154,7 +154,7 @@ jobs:
             bash -c "
               set -e
               apt-get update
-              apt-get install -y gcc make ca-certificates
+              apt-get install -y gcc make ca-certificates curl unzip
               apt-get install -y gcc-loongarch64-linux-gnu || {
                 echo 'Trying alternative loongarch64 package names...'
                 apt-cache search loongarch 2>/dev/null || true
